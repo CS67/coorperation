@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>人类合作博弈模型</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background-color: #1a1a1a;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+      }
+
+      canvas {
+        display: block;
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 1;
+      }
+
+      /* --- UI Overlays --- */
+      .overlay {
+        position: absolute;
+        z-index: 2;
+        color: #f0f0f0;
+      }
+
+      #stats-container {
+        top: 20px;
+        left: 20px;
+        background: rgba(0, 0, 0, 0.6);
+        padding: 15px;
+        border-radius: 8px;
+        min-width: 320px;
+      }
+      #stats-container h3 {
+        margin-top: 0;
+        border-bottom: 1px solid #555;
+        padding-bottom: 5px;
+      }
+      #stats-container p {
+        margin: 8px 0;
+        font-size: 14px;
+      }
+
+      #controls {
+        top: 20px;
+        right: 20px;
+      }
+      #controls button {
+        background-color: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 15px;
+        font-size: 14px;
+        margin: 0 5px;
+        cursor: pointer;
+        border-radius: 5px;
+        transition: background-color 0.3s;
+      }
+      #controls button:hover {
+        background-color: #0056b3;
+      }
+
+      /* --- Settings Panel --- */
+      #settings-panel {
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: #2c3e50;
+        padding: 20px 30px;
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        width: 500px;
+        border: 1px solid #444;
+      }
+      #settings-panel h2 {
+        text-align: center;
+        margin-top: 0;
+        border-bottom: 1px solid #4a627a;
+        padding-bottom: 15px;
+      }
+      .settings-group {
+        margin-bottom: 20px;
+      }
+      .settings-group h3 {
+        margin-bottom: 10px;
+        color: #3498db;
+      }
+      .input-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+      .input-row label {
+        flex-basis: 60%;
+      }
+      .input-row input {
+        flex-basis: 35%;
+        width: 60px;
+        padding: 5px;
+        background: #1c2833;
+        color: white;
+        border: 1px solid #4a627a;
+        border-radius: 4px;
+      }
+      #start-button {
+        width: 100%;
+        padding: 12px;
+        font-size: 18px;
+        background-color: #2ecc71;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: background-color 0.3s;
+      }
+      #start-button:hover {
+        background-color: #27ae60;
+      }
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="simulationCanvas"></canvas>
+    <div id="stats-container" class="overlay hidden"></div>
+    <div id="controls" class="overlay hidden">
+      <button onclick="setSpeed(10)">1x</button>
+      <button onclick="setSpeed(50)">5x</button>
+      <button onclick="setSpeed(100)">10x</button>
+    </div>
+
+    <!-- Settings Panel -->
+    <div id="settings-panel" class="overlay">
+      <h2>模拟参数设置</h2>
+      <div class="settings-group">
+        <h3>种群数量</h3>
+        <div class="input-row">
+          <label for="pop_cooperator">始终合作者 (蓝):</label
+          ><input type="number" id="pop_cooperator" value="100" min="0" />
+        </div>
+        <div class="input-row">
+          <label for="pop_defector">始终背叛者 (红):</label
+          ><input type="number" id="pop_defector" value="100" min="0" />
+        </div>
+        <div class="input-row">
+          <label for="pop_tit_for_tat">模仿者 (绿):</label
+          ><input type="number" id="pop_tit_for_tat" value="100" min="0" />
+        </div>
+        <div class="input-row">
+          <label for="pop_random">随机选择者 (灰):</label
+          ><input type="number" id="pop_random" value="100" min="0" />
+        </div>
+      </div>
+      <div class="settings-group">
+        <h3>交互收益规则</h3>
+        <div class="input-row">
+          <label for="payoff_cc">双方合作 (C-C):</label
+          ><input type="number" id="payoff_cc" value="3" />
+        </div>
+        <div class="input-row">
+          <label for="payoff_temptation">你背叛, 对方合作 (B-C):</label
+          ><input type="number" id="payoff_temptation" value="10" />
+        </div>
+        <div class="input-row">
+          <label for="payoff_sucker">你合作, 对方背叛 (C-B):</label
+          ><input type="number" id="payoff_sucker" value="-5" />
+        </div>
+        <div class="input-row">
+          <label for="payoff_bb">双方背叛 (B-B):</label
+          ><input type="number" id="payoff_bb" value="-1" />
+        </div>
+      </div>
+      <button id="start-button" onclick="toggleSimulation()">开始模拟</button>
+    </div>
+
+    <script>
+      const canvas = document.getElementById("simulationCanvas"),
+        ctx = canvas.getContext("2d");
+      const settingsPanel = document.getElementById("settings-panel");
+      const statsContainer = document.getElementById("stats-container");
+      const controlsContainer = document.getElementById("controls");
+      const startButton = document.getElementById("start-button");
+
+      let humans = [],
+        stats = {},
+        simulationSpeed = 10,
+        isRunning = false,
+        animationFrameId = null;
+
+      // Constants
+      const INITIAL_ASSETS = 100,
+        HUMAN_RADIUS = 5,
+        HUMAN_SPEED = 1;
+      const STRATEGIES = {
+        COOPERATOR: "COOPERATOR",
+        DEFECTOR: "DEFECTOR",
+        TIT_FOR_TAT: "TIT_FOR_TAT",
+        RANDOM: "RANDOM",
+      };
+      const STRATEGY_NAMES = {
+        [STRATEGIES.COOPERATOR]: "始终合作者",
+        [STRATEGIES.DEFECTOR]: "始终背叛者",
+        [STRATEGIES.TIT_FOR_TAT]: "模仿者",
+        [STRATEGIES.RANDOM]: "随机选择者",
+      };
+      const STRATEGY_COLORS = {
+        [STRATEGIES.COOPERATOR]: "#3498db",
+        [STRATEGIES.DEFECTOR]: "#e74c3c",
+        [STRATEGIES.TIT_FOR_TAT]: "#2ecc71",
+        [STRATEGIES.RANDOM]: "#95a5a6",
+      };
+
+      // --- Simulation State Control ---
+      function toggleSimulation() {
+        if (isRunning) {
+          stopSimulation();
+        } else {
+          startSimulation();
+        }
+      }
+
+      function startSimulation() {
+        console.log("Starting simulation with custom settings...");
+        setup();
+        isRunning = true;
+        settingsPanel.classList.add("hidden");
+        statsContainer.classList.remove("hidden");
+        controlsContainer.classList.remove("hidden");
+        startButton.textContent = "重新设置";
+        animationLoop();
+      }
+
+      function stopSimulation() {
+        console.log("Stopping simulation.");
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        isRunning = false;
+        humans = [];
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        settingsPanel.classList.remove("hidden");
+        statsContainer.classList.add("hidden");
+        controlsContainer.classList.add("hidden");
+        startButton.textContent = "开始模拟";
+      }
+
+      // --- Setup with User Settings ---
+      function setup() {
+        // Read settings from input fields
+        const populationSettings = {
+          [STRATEGIES.COOPERATOR]:
+            parseInt(document.getElementById("pop_cooperator").value) || 0,
+          [STRATEGIES.DEFECTOR]:
+            parseInt(document.getElementById("pop_defector").value) || 0,
+          [STRATEGIES.TIT_FOR_TAT]:
+            parseInt(document.getElementById("pop_tit_for_tat").value) || 0,
+          [STRATEGIES.RANDOM]:
+            parseInt(document.getElementById("pop_random").value) || 0,
+        };
+        const payoffSettings = {
+          BOTH_COOPERATE: parseInt(document.getElementById("payoff_cc").value),
+          TEMPTATION: parseInt(
+            document.getElementById("payoff_temptation").value
+          ),
+          SUCKER: parseInt(document.getElementById("payoff_sucker").value),
+          BOTH_DEFECT: parseInt(document.getElementById("payoff_bb").value),
+        };
+
+        humans = [];
+        stats = {};
+        let idCounter = 0;
+
+        Object.values(STRATEGIES).forEach((strategy) => {
+          const count = populationSettings[strategy];
+          // Initialize stats for this strategy
+          stats[strategy] = {
+            count: count,
+            initialCount: count,
+            eliminated: 0,
+            totalPayoff: 0,
+            interactions: 0,
+          };
+          // Create humans for this strategy
+          for (let i = 0; i < count; i++) {
+            const x =
+              Math.random() * (canvas.width - 2 * HUMAN_RADIUS) + HUMAN_RADIUS;
+            const y =
+              Math.random() * (canvas.height - 2 * HUMAN_RADIUS) + HUMAN_RADIUS;
+            humans.push(new Human(idCounter++, x, y, strategy, payoffSettings));
+          }
+        });
+      }
+
+      class Human {
+        constructor(id, x, y, strategy, payoffs) {
+          this.id = id;
+          this.x = x;
+          this.y = y;
+          this.strategy = strategy;
+          this.vx = (Math.random() - 0.5) * HUMAN_SPEED;
+          this.vy = (Math.random() - 0.5) * HUMAN_SPEED;
+          this.radius = HUMAN_RADIUS;
+          this.assets = INITIAL_ASSETS;
+          this.color = STRATEGY_COLORS[strategy];
+          this.lastInteraction = {};
+          this.payoffs = payoffs;
+        }
+        draw() {
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+          ctx.fillStyle = this.color;
+          ctx.fill();
+        }
+        move() {
+          this.x += this.vx;
+          this.y += this.vy;
+          if (this.x <= this.radius || this.x >= canvas.width - this.radius)
+            this.vx *= -1;
+          if (this.y <= this.radius || this.y >= canvas.height - this.radius)
+            this.vy *= -1;
+        }
+        getChoice(opponentId) {
+          switch (this.strategy) {
+            case STRATEGIES.COOPERATOR:
+              return "cooperate";
+            case STRATEGIES.DEFECTOR:
+              return "betray";
+            case STRATEGIES.RANDOM:
+              return Math.random() < 0.5 ? "cooperate" : "betray";
+            case STRATEGIES.TIT_FOR_TAT:
+              return this.lastInteraction[opponentId] === undefined
+                ? "cooperate"
+                : this.lastInteraction[opponentId];
+          }
+        }
+      }
+
+      function handleInteraction(h1, h2) {
+        const choice1 = h1.getChoice(h2.id),
+          choice2 = h2.getChoice(h1.id);
+        let p1 = 0,
+          p2 = 0; // payoffs
+
+        if (choice1 === "cooperate" && choice2 === "cooperate") {
+          [p1, p2] = [h1.payoffs.BOTH_COOPERATE, h2.payoffs.BOTH_COOPERATE];
+        } else if (choice1 === "cooperate" && choice2 === "betray") {
+          [p1, p2] = [h1.payoffs.SUCKER, h2.payoffs.TEMPTATION];
+        } else if (choice1 === "betray" && choice2 === "cooperate") {
+          [p1, p2] = [h1.payoffs.TEMPTATION, h2.payoffs.SUCKER];
+        } else {
+          [p1, p2] = [h1.payoffs.BOTH_DEFECT, h2.payoffs.BOTH_DEFECT];
+        }
+
+        h1.assets += p1;
+        h2.assets += p2;
+        h1.lastInteraction[h2.id] = choice2;
+        h2.lastInteraction[h1.id] = choice1;
+        updateInteractionStats(h1.strategy, p1);
+        updateInteractionStats(h2.strategy, p2);
+      }
+
+      // --- Main Loop and supporting functions ---
+      function setSpeed(newSpeed) {
+        simulationSpeed = newSpeed;
+      }
+      function checkCollisions() {
+        for (let i = 0; i < humans.length; i++) {
+          for (let j = i + 1; j < humans.length; j++) {
+            const h1 = humans[i],
+              h2 = humans[j];
+            if (
+              (h1.x - h2.x) ** 2 + (h1.y - h2.y) ** 2 <
+              (h1.radius + h2.radius) ** 2
+            ) {
+              handleInteraction(h1, h2);
+              [h1.vx, h2.vx] = [h2.vx, h1.vx];
+              [h1.vy, h2.vy] = [h2.vy, h1.vy];
+            }
+          }
+        }
+      }
+      function updateAndEliminate() {
+        const remainingHumans = [];
+        Object.values(STRATEGIES).forEach((s) => {
+          stats[s].count = 0;
+        });
+        for (const h of humans) {
+          if (h.assets <= 0) {
+            stats[h.strategy].eliminated =
+              stats[h.strategy].initialCount - stats[h.strategy].count;
+          } else {
+            remainingHumans.push(h);
+            stats[h.strategy].count++;
+          }
+        }
+        humans = remainingHumans;
+        // A more robust way to count eliminated
+        Object.values(STRATEGIES).forEach((s) => {
+          if (stats[s])
+            stats[s].eliminated = stats[s].initialCount - stats[s].count;
+        });
+      }
+      function updateInteractionStats(strategy, payoff) {
+        stats[strategy].totalPayoff += payoff;
+        stats[strategy].interactions++;
+      }
+      function displayStats() {
+        let html = "<h3>实时统计数据</h3>";
+        Object.values(STRATEGIES).forEach((strategy) => {
+          const s = stats[strategy];
+          if (!s || s.initialCount === 0) return; // Don't display stats for groups that never existed
+          const avgPayoff =
+            s.interactions > 0
+              ? (s.totalPayoff / s.interactions).toFixed(2)
+              : "0.00";
+          html += `<p style="color: ${STRATEGY_COLORS[strategy]};">
+                    <strong>${STRATEGY_NAMES[strategy]}</strong>: 
+                    存活: ${s.count} | 
+                    淘汰: ${s.eliminated} | 
+                    平均收益: ${avgPayoff}
+                </p>`;
+        });
+        statsContainer.innerHTML = html;
+      }
+
+      function animationLoop() {
+        for (let i = 0; i < simulationSpeed; i++) {
+          humans.forEach((h) => h.move());
+          checkCollisions();
+          updateAndEliminate();
+        }
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        humans.forEach((h) => h.draw());
+        displayStats();
+        animationFrameId = requestAnimationFrame(animationLoop);
+      }
+
+      // --- Initial Load ---
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        if (isRunning) {
+          stopSimulation();
+        } // If simulation is running, stop and reset it on resize
+      }
+      window.addEventListener("resize", resizeCanvas);
+      resizeCanvas();
+    </script>
+  </body>
+</html>
